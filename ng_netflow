@@ -1,0 +1,60 @@
+#! /bin/sh
+
+# PROVIDE: ng_netflow
+# BEFORE: SERVERS
+# REQUIRE: NETWORKING
+
+# Variables:
+# ng_netflow_enable - Enables flow exporting using ng_netflow
+# ng_netflow_interface - Interface which netflow module should listen on
+# ng_netflow_collect_addr - IP address of netflow collector
+# ng_netflow_collect_port - Port number of netflow collector
+#
+# For more information about specific parameters please refer to
+# ng_netflow(4) man page.
+#
+
+. /etc/rc.subr
+
+name=ng_netflow
+rcvar=ng_netflow_enable
+start_precmd=ng_netflow_prestart
+start_cmd=ng_netflow_start
+stop_cmd=ng_netflow_stop
+required_modules="netgraph ng_ether ng_netflow ng_ksocket"
+
+load_rc_config $name
+: ${ng_netflow_enable="NO"}
+: ${ng_netflow_collect_port="4444"}
+
+ng_netflow_prestart()
+{
+	if [ -z "${ng_netflow_interface}" ]; then
+		err 1 "You must specify \$ng_netflow_interface."
+	fi
+	if [ -z "${ng_netflow_collect_addr}" ]; then
+		err 1 "You must specify \$ng_netflow_collect_addr."
+	fi
+}
+
+ng_netflow_start()
+{
+	/usr/sbin/ngctl -f- <<-SEQ
+		mkpeer ${ng_netflow_interface}: netflow lower iface0
+		name ${ng_netflow_interface}:lower netflow
+		connect ${ng_netflow_interface}: netflow: upper out0
+		msg netflow: setconfig {iface=0 conf=7}
+		mkpeer netflow: ksocket export9 inet/dgram/udp
+		name netflow:export9 nfsock
+		msg nfsock: connect inet/${ng_netflow_collect_addr}:${ng_netflow_collect_port}
+	SEQ
+}
+
+ng_netflow_stop()
+{
+	/usr/sbin/ngctl -f- <<-SEQ
+		shutdown netflow:
+	SEQ
+}
+
+run_rc_command "$1"
